@@ -7,8 +7,6 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# ── CONEXÃO usa variáveis de ambiente do Railway ──────────────
-# Localmente continua funcionando com os valores padrão
 def get_db_connection():
     return mysql.connector.connect(
         host     = os.environ.get('DB_HOST',     '127.0.0.1'),
@@ -43,7 +41,7 @@ def login():
         return jsonify({"error": str(e)}), 500
 
 
-# ── REGISTRAR NOVO USUÁRIO ────────────────────────────────────
+# ── REGISTRAR ─────────────────────────────────────────────────
 @app.route('/api/registrar', methods=['POST'])
 def registrar():
     data          = request.get_json()
@@ -71,6 +69,55 @@ def registrar():
         cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "Conta criada com sucesso!"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── CARREGAR CONFIGURAÇÃO ─────────────────────────────────────
+@app.route('/api/config/<username>', methods=['GET'])
+def carregar_config(username):
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT units, avg_goal, max_grade FROM configuracoes WHERE userId = %s",
+            (username,)
+        )
+        config = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if config:
+            return jsonify(config), 200
+        else:
+            # Retorna padrão se não tiver configuração salva
+            return jsonify({"units": 4, "avg_goal": 60, "max_grade": 100}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── SALVAR CONFIGURAÇÃO ───────────────────────────────────────
+@app.route('/api/config/<username>', methods=['PUT'])
+def salvar_config(username):
+    data      = request.get_json()
+    units     = data.get('units', 4)
+    avg_goal  = data.get('avgGoal', 60)
+    max_grade = data.get('maxGrade', 100)
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor()
+        # INSERT se não existir, UPDATE se já existir
+        cursor.execute("""
+            INSERT INTO configuracoes (userId, units, avg_goal, max_grade)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                units     = VALUES(units),
+                avg_goal  = VALUES(avg_goal),
+                max_grade = VALUES(max_grade)
+        """, (username, units, avg_goal, max_grade))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
