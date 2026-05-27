@@ -7,8 +7,6 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# ── CONEXÃO usa variáveis de ambiente do Railway ──────────────
-# Localmente continua funcionando com os valores padrão
 def get_db_connection():
     return mysql.connector.connect(
         host     = os.environ.get('DB_HOST',     '127.0.0.1'),
@@ -17,7 +15,6 @@ def get_db_connection():
         password = os.environ.get('DB_PASSWORD', 'Pikaflamejante1!'),
         database = os.environ.get('DB_NAME',     'site_notas_db'),
     )
-
 
 # ── LOGIN ─────────────────────────────────────────────────────
 @app.route('/api/login', methods=['POST'])
@@ -42,8 +39,7 @@ def login():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-# ── REGISTRAR NOVO USUÁRIO ────────────────────────────────────
+# ── REGISTRAR ─────────────────────────────────────────────────
 @app.route('/api/registrar', methods=['POST'])
 def registrar():
     data          = request.get_json()
@@ -74,7 +70,6 @@ def registrar():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ── LISTAR MATÉRIAS ───────────────────────────────────────────
 @app.route('/api/materias/<username>', methods=['GET'])
 def carregar_materias(username):
@@ -93,7 +88,6 @@ def carregar_materias(username):
         return jsonify(rows), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # ── CRIAR MATÉRIA ─────────────────────────────────────────────
 @app.route('/api/materias', methods=['POST'])
@@ -117,7 +111,6 @@ def salvar_materia():
         return jsonify({"id": novo_id, "name": nome, "grades": grades}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # ── ATUALIZAR NOTAS ───────────────────────────────────────────
 @app.route('/api/materias/<int:materia_id>', methods=['PUT'])
@@ -143,7 +136,6 @@ def atualizar_materia(materia_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ── DELETAR MATÉRIA ───────────────────────────────────────────
 @app.route('/api/materias/<int:materia_id>', methods=['DELETE'])
 def deletar_materia(materia_id):
@@ -166,6 +158,49 @@ def deletar_materia(materia_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ── CARREGAR CONFIG ───────────────────────────────────────────
+@app.route('/api/config/<username>', methods=['GET'])
+def carregar_config(username):
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT units, avg_goal, max_grade FROM configuracoes WHERE userId = %s",
+            (username,)
+        )
+        config = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not config:
+            return jsonify({"units": 4, "avg_goal": 60, "max_grade": 100}), 200
+        return jsonify(config), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ── SALVAR CONFIG ─────────────────────────────────────────────
+@app.route('/api/config/<username>', methods=['PUT'])
+def salvar_config(username):
+    data      = request.get_json()
+    units     = data.get('units', 4)
+    avg_goal  = data.get('avgGoal', 60)
+    max_grade = data.get('maxGrade', 100)
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO configuracoes (userId, units, avg_goal, max_grade)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                units     = VALUES(units),
+                avg_goal  = VALUES(avg_goal),
+                max_grade = VALUES(max_grade)
+        """, (username, units, avg_goal, max_grade))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
