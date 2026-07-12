@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
 import json
 import os
@@ -7,44 +8,48 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+
 def get_db_connection():
     return mysql.connector.connect(
-        host     = os.environ.get('DB_HOST',     '127.0.0.1'),
-        port     = int(os.environ.get('DB_PORT', 3306)),
-        user     = os.environ.get('DB_USER',     'root'),
-        password = os.environ.get('DB_PASSWORD', 'Pikaflamejante1!'),
-        database = os.environ.get('DB_NAME',     'site_notas_db'),
+        host=os.environ.get('DB_HOST', '127.0.0.1'),
+        port=int(os.environ.get('DB_PORT', 3306)),
+        user=os.environ.get('DB_USER', 'root'),
+        password=os.environ.get('DB_PASSWORD'),  # sem valor padrão — precisa estar no .env
+        database=os.environ.get('DB_NAME', 'site_notas_db'),
     )
+
 
 # ── LOGIN ─────────────────────────────────────────────────────
 @app.route('/api/login', methods=['POST'])
 def login():
-    data     = request.get_json()
+    data = request.get_json()
     username = data.get('username')
-    senha    = data.get('senha')
+    senha = data.get('senha')
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT username, nome_exibicao FROM usuarios WHERE username = %s AND senha = %s",
-            (username, senha)
+            "SELECT username, nome_exibicao, senha FROM usuarios WHERE username = %s",
+            (username,)
         )
         user = cursor.fetchone()
         cursor.close()
         conn.close()
-        if user:
+        if user and check_password_hash(user['senha'], senha):
+            user.pop('senha')  # nunca devolve o hash pro front
             return jsonify({"success": True, "user": user}), 200
         else:
             return jsonify({"success": False, "error": "Usuário ou senha incorretos."}), 401
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── REGISTRAR ─────────────────────────────────────────────────
 @app.route('/api/registrar', methods=['POST'])
 def registrar():
-    data          = request.get_json()
-    username      = data.get('username', '').strip()
-    senha         = data.get('senha', '').strip()
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    senha = data.get('senha', '').strip()
     nome_exibicao = data.get('nome_exibicao', '').strip()
 
     if not username or not senha or not nome_exibicao:
@@ -52,16 +57,19 @@ def registrar():
     if len(senha) < 4:
         return jsonify({"error": "A senha deve ter pelo menos 4 caracteres."}), 400
 
+    senha_hash = generate_password_hash(senha)
+
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM usuarios WHERE username = %s", (username,))
         if cursor.fetchone():
-            cursor.close(); conn.close()
+            cursor.close()
+            conn.close()
             return jsonify({"error": "Esse usuário já existe. Escolha outro."}), 409
         cursor.execute(
             "INSERT INTO usuarios (username, senha, nome_exibicao) VALUES (%s, %s, %s)",
-            (username, senha, nome_exibicao)
+            (username, senha_hash, nome_exibicao)
         )
         conn.commit()
         cursor.close()
@@ -70,11 +78,12 @@ def registrar():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── LISTAR MATÉRIAS ───────────────────────────────────────────
 @app.route('/api/materias/<username>', methods=['GET'])
 def carregar_materias(username):
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, nome AS name, unidades_notas AS grades FROM materias WHERE userId = %s ORDER BY createdAt ASC",
@@ -89,16 +98,17 @@ def carregar_materias(username):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── CRIAR MATÉRIA ─────────────────────────────────────────────
 @app.route('/api/materias', methods=['POST'])
 def salvar_materia():
-    data    = request.get_json()
-    nome    = data.get('name')
-    grades  = data.get('grades')
+    data = request.get_json()
+    nome = data.get('name')
+    grades = data.get('grades')
     user_id = data.get('userId')
     try:
-        conn        = get_db_connection()
-        cursor      = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor()
         grades_json = json.dumps(grades)
         cursor.execute(
             "INSERT INTO materias (nome, unidades_notas, userId) VALUES (%s, %s, %s)",
@@ -112,15 +122,16 @@ def salvar_materia():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── ATUALIZAR NOTAS ───────────────────────────────────────────
 @app.route('/api/materias/<int:materia_id>', methods=['PUT'])
 def atualizar_materia(materia_id):
-    data    = request.get_json()
-    grades  = data.get('grades')
+    data = request.get_json()
+    grades = data.get('grades')
     user_id = data.get('userId')
     try:
-        conn        = get_db_connection()
-        cursor      = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor()
         grades_json = json.dumps(grades)
         cursor.execute(
             "UPDATE materias SET unidades_notas = %s WHERE id = %s AND userId = %s",
@@ -128,7 +139,8 @@ def atualizar_materia(materia_id):
         )
         conn.commit()
         if cursor.rowcount == 0:
-            cursor.close(); conn.close()
+            cursor.close()
+            conn.close()
             return jsonify({"error": "Matéria não encontrada."}), 404
         cursor.close()
         conn.close()
@@ -136,13 +148,14 @@ def atualizar_materia(materia_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── DELETAR MATÉRIA ───────────────────────────────────────────
 @app.route('/api/materias/<int:materia_id>', methods=['DELETE'])
 def deletar_materia(materia_id):
-    data    = request.get_json()
+    data = request.get_json()
     user_id = data.get('userId')
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM materias WHERE id = %s AND userId = %s",
@@ -150,7 +163,8 @@ def deletar_materia(materia_id):
         )
         conn.commit()
         if cursor.rowcount == 0:
-            cursor.close(); conn.close()
+            cursor.close()
+            conn.close()
             return jsonify({"error": "Matéria não encontrada."}), 404
         cursor.close()
         conn.close()
@@ -158,11 +172,12 @@ def deletar_materia(materia_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── CARREGAR CONFIG ───────────────────────────────────────────
 @app.route('/api/config/<username>', methods=['GET'])
 def carregar_config(username):
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT units, avg_goal, max_grade FROM configuracoes WHERE userId = %s",
@@ -177,15 +192,16 @@ def carregar_config(username):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 # ── SALVAR CONFIG ─────────────────────────────────────────────
 @app.route('/api/config/<username>', methods=['PUT'])
 def salvar_config(username):
-    data      = request.get_json()
-    units     = data.get('units', 4)
-    avg_goal  = data.get('avgGoal', 60)
+    data = request.get_json()
+    units = data.get('units', 4)
+    avg_goal = data.get('avgGoal', 60)
     max_grade = data.get('maxGrade', 100)
     try:
-        conn   = get_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO configuracoes (userId, units, avg_goal, max_grade)
@@ -201,6 +217,7 @@ def salvar_config(username):
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
