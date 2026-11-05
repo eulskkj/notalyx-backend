@@ -219,5 +219,20 @@ def salvar_config(username):
         return jsonify({"error": str(e)}), 500
 
 
+# ── HEALTH (usado pelo UptimeRobot pra manter Render e banco acordados) ──
+@app.route('/api/health', methods=['GET'])
+def health():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        return jsonify({"status": "erro", "error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
